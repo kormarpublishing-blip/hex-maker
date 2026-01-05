@@ -1,0 +1,450 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>Hex Map Creator</title>
+    <!-- Core Dependencies -->
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            background-color: #020617;
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            color: white;
+            font-family: system-ui, -apple-system, sans-serif;
+        }
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+        .safe-pb { padding-bottom: env(safe-area-inset-bottom); }
+        .safe-pt { padding-top: env(safe-area-inset-top); }
+        .animate-pop { animation: pop 0.2s ease-out; }
+        @keyframes pop {
+            0% { transform: scale(0.95); opacity: 0; }
+            100% { transform: scale(1); opacity: 1; }
+        }
+        input[type="range"] { accent-color: #4f46e5; }
+        .scroll-container { scroll-behavior: smooth; }
+        
+        /* Cursor helpers */
+        .cursor-paint { cursor: crosshair; }
+        .cursor-note { cursor: pointer; }
+
+        /* Transition for collapsible ledger */
+        .ledger-transition {
+            transition: height 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useMemo, useRef } = React;
+
+        const Icons = {
+            Settings: () => <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>,
+            X: () => <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>,
+            Eye: () => <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0z"/><circle cx="12" cy="12" r="3"/></svg>,
+            Sparkles: () => <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"/><path d="M5 3v4"/><path d="M19 17v4"/><path d="M3 5h4"/><path d="M17 19h4"/></svg>,
+            Download: () => <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/></svg>,
+            Upload: () => <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" x2="12" y1="3" y2="15"/></svg>,
+            Camera: () => <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/></svg>,
+            MapPin: () => <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg>,
+            Paint: () => <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m14.622 17.897-10.68-10.68a2 2 0 1 1 2.829-2.829l10.68 10.68a2 2 0 1 1-2.829 2.829Z"/><path d="M8.5 12.5 11.5 15.5"/><path d="m15 11 3 3"/></svg>,
+            EditNote: () => <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>,
+            ChevronDown: () => <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m6 9 6 6 6-6"/></svg>,
+            ChevronUp: () => <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m18 15-6-6-6 6"/></svg>
+        };
+
+        const TERRAIN_TYPES = {
+            water: { color: '#3b82f6', label: 'Water' },
+            plains: { color: '#6ee7b7', label: 'Plains' },
+            forest: { color: '#059669', label: 'Forest' },
+            hill: { color: '#fbbf24', label: 'Hills' },
+            mountain: { color: '#64748b', label: 'Mountains' },
+            desert: { color: '#fde68a', label: 'Desert' },
+        };
+
+        const getHexID = (q, r) => `${String(q + 1).padStart(2, '0')}${String(r + 1).padStart(2, '0')}`;
+
+        const generateMapData = (cols, rows) => {
+            const data = {};
+            const seed = Math.random() * 1000;
+            const getNoise = (q, r, freq) => (Math.sin(q * freq + seed) + Math.cos(r * freq + seed)) / 2;
+            for (let r = 0; r < rows; r++) {
+                for (let q = 0; q < cols; q++) {
+                    const id = getHexID(q, r);
+                    const val = getNoise(q, r, 0.6) + (Math.random() - 0.5) * 0.3;
+                    let terrain = val < -0.55 ? 'water' : val < 0.15 ? 'plains' : val < 0.45 ? 'forest' : val < 0.7 ? 'hill' : 'mountain';
+                    if (getNoise(q, r, 0.25) > 0.55 && terrain !== 'water') terrain = 'desert';
+                    data[id] = { terrain, description: "" };
+                }
+            }
+            return data;
+        };
+
+        function App() {
+            const [cols, setCols] = useState(12);
+            const [rows, setRows] = useState(12);
+            const [hexData, setHexData] = useState(() => generateMapData(12, 12));
+            const [selectedTerrain, setSelectedTerrain] = useState('plains');
+            const [activeHex, setActiveHex] = useState(null);
+            const [isGMView, setIsGMView] = useState(true);
+            const [toolMode, setToolMode] = useState('note'); // 'note' or 'paint'
+            const [mapName, setMapName] = useState("World Map");
+            const [showSettings, setShowSettings] = useState(false);
+            const [isLedgerOpen, setIsLedgerOpen] = useState(false);
+            const [status, setStatus] = useState("");
+
+            const svgRef = useRef(null);
+            const mapContainerRef = useRef(null);
+
+            const hexSize = 42; 
+            const hexWidth = Math.sqrt(3) * hexSize;
+            const hexHeight = 2 * hexSize;
+
+            const getHexCoords = (q, r) => ({
+                x: hexWidth * q + (r % 2 === 1 ? hexWidth / 2 : 0),
+                y: hexHeight * 0.75 * r
+            });
+
+            const handleHexClick = (id) => {
+                if (toolMode === 'paint') {
+                    setHexData(prev => ({
+                        ...prev,
+                        [id]: { ...prev[id], terrain: selectedTerrain }
+                    }));
+                } else {
+                    setActiveHex(id);
+                }
+            };
+
+            const jumpToHex = (id) => {
+                setToolMode('note');
+                setActiveHex(id);
+                const hexElement = document.getElementById(`hex-group-${id}`);
+                if (hexElement && mapContainerRef.current) {
+                    hexElement.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' });
+                }
+            };
+
+            const handleRandomize = () => {
+                setHexData(generateMapData(cols, rows));
+                setShowSettings(false);
+                notify("New Map Generated");
+            };
+
+            const notify = (msg) => {
+                setStatus(msg);
+                setTimeout(() => setStatus(""), 3000);
+            };
+
+            const saveToJson = () => {
+                const data = { mapName, cols, rows, hexData, version: "1.2" };
+                const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `${mapName.toLowerCase().replace(/\s+/g, '_')}_data.json`;
+                a.click();
+                URL.revokeObjectURL(url);
+                notify("JSON Exported");
+            };
+
+            const loadFromJson = (e) => {
+                const file = e.target.files[0];
+                if (!file) return;
+                const reader = new FileReader();
+                reader.onload = (event) => {
+                    try {
+                        const data = JSON.parse(event.target.result);
+                        if (data.hexData && data.cols) {
+                            setMapName(data.mapName || "Imported Map");
+                            setCols(data.cols);
+                            setRows(data.rows);
+                            setHexData(data.hexData);
+                            notify("Map Loaded Successfully");
+                        }
+                    } catch (err) {
+                        notify("Error reading file");
+                    }
+                };
+                reader.readAsText(file);
+            };
+
+            const exportAsImage = () => {
+                if (!svgRef.current) return;
+                const svg = svgRef.current;
+                const serializer = new XMLSerializer();
+                const source = serializer.serializeToString(svg);
+                
+                const canvas = document.createElement('canvas');
+                const scale = 2; 
+                canvas.width = (cols * hexWidth + 120) * scale;
+                canvas.height = (rows * hexHeight * 0.75 + 120) * scale;
+                const ctx = canvas.getContext('2d');
+                
+                const img = new Image();
+                const svgBlob = new Blob([source], {type: 'image/svg+xml;charset=utf-8'});
+                const url = URL.createObjectURL(svgBlob);
+                
+                img.onload = () => {
+                    ctx.fillStyle = '#0a0f1a';
+                    ctx.fillRect(0, 0, canvas.width, canvas.height);
+                    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                    const pngUrl = canvas.toDataURL("image/png");
+                    const a = document.createElement('a');
+                    a.href = pngUrl;
+                    a.download = `${mapName.replace(/\s+/g, '_')}_${isGMView ? 'gm' : 'player'}.png`;
+                    a.click();
+                    URL.revokeObjectURL(url);
+                    notify("Image Exported");
+                };
+                img.src = url;
+            };
+
+            const annotatedHexes = useMemo(() => 
+                Object.entries(hexData)
+                    .filter(([_, d]) => d.description?.trim())
+                    .sort((a, b) => a[0].localeCompare(b[0])), 
+                [hexData]
+            );
+
+            return (
+                <div className="flex flex-col h-screen bg-slate-950 text-white overflow-hidden select-none">
+                    <header className="p-4 bg-slate-900 border-b border-white/5 flex justify-between items-center safe-pt z-20">
+                        <div>
+                            <input value={mapName} onChange={e => setMapName(e.target.value)} className="bg-transparent font-bold text-lg focus:outline-none w-40 border-b border-transparent focus:border-indigo-500/50" />
+                            <div className="text-[10px] text-indigo-400 font-mono uppercase tracking-widest h-3">{status || "Ready"}</div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                            <div className="bg-slate-800 p-1 rounded-xl flex">
+                                <button 
+                                    onClick={() => setToolMode('note')}
+                                    className={`p-2 rounded-lg transition-all ${toolMode === 'note' ? 'bg-indigo-600 shadow-lg' : 'hover:bg-white/5 text-slate-400'}`}
+                                    title="Note Mode"
+                                >
+                                    <Icons.EditNote />
+                                </button>
+                                <button 
+                                    onClick={() => setToolMode('paint')}
+                                    className={`p-2 rounded-lg transition-all ${toolMode === 'paint' ? 'bg-indigo-600 shadow-lg' : 'hover:bg-white/5 text-slate-400'}`}
+                                    title="Paint Mode"
+                                >
+                                    <Icons.Paint />
+                                </button>
+                            </div>
+                            <button onClick={() => setShowSettings(true)} className="p-2 bg-slate-800 rounded-full active:scale-90 hover:bg-slate-700 transition-colors"><Icons.Settings /></button>
+                        </div>
+                    </header>
+
+                    <div className="flex-1 overflow-hidden flex flex-col relative">
+                        <main 
+                            ref={mapContainerRef}
+                            className={`flex-1 overflow-auto relative bg-[#0a0f1a] no-scrollbar scroll-container ${toolMode === 'paint' ? 'cursor-paint' : 'cursor-note'}`}
+                        >
+                            <div className="p-20 min-w-max min-h-max">
+                                <svg 
+                                    ref={svgRef}
+                                    viewBox={`-60 -60 ${cols * hexWidth + 120} ${rows * hexHeight * 0.75 + 120}`}
+                                    width={cols * hexWidth + 60}
+                                    height={rows * hexHeight * 0.75 + 60}
+                                    className="transition-all duration-500"
+                                >
+                                    {[...Array(rows)].map((_, r) => (
+                                        [...Array(cols)].map((_, q) => {
+                                            const id = getHexID(q, r);
+                                            const { x, y } = getHexCoords(q, r);
+                                            const data = hexData[id] || { terrain: 'water' };
+                                            const terrain = TERRAIN_TYPES[data.terrain] || TERRAIN_TYPES.water;
+                                            const active = activeHex === id;
+                                            return (
+                                                <g 
+                                                    key={id} 
+                                                    id={`hex-group-${id}`}
+                                                    onClick={() => handleHexClick(id)} 
+                                                    transform={`translate(${x},${y})`} 
+                                                    className="group"
+                                                >
+                                                    <polygon 
+                                                        points="0,-40 34.64,-20 34.64,20 0,40 -34.64,20 -34.64,-20" 
+                                                        fill={terrain.color} 
+                                                        stroke={active ? "#fbbf24" : "rgba(255,255,255,0.05)"} 
+                                                        strokeWidth={active ? 4 : 1} 
+                                                        className="transition-all duration-200 group-hover:brightness-110"
+                                                    />
+                                                    {isGMView && (
+                                                        <g style={{pointerEvents:'none'}}>
+                                                            <text y="-4" textAnchor="middle" className="text-[10px] font-bold opacity-30 fill-white select-none">{id}</text>
+                                                            {data.description && <circle cy="12" r="4" fill="white" opacity="0.6" />}
+                                                        </g>
+                                                    )}
+                                                </g>
+                                            );
+                                        })
+                                    ))}
+                                </svg>
+                            </div>
+                        </main>
+
+                        {/* Collapsible Ledger */}
+                        <section 
+                            className={`ledger-transition bg-slate-900/90 backdrop-blur-md border-t border-white/10 overflow-hidden flex flex-col absolute bottom-0 left-0 right-0 z-30 ${isLedgerOpen ? 'h-64' : 'h-10'}`}
+                        >
+                            <div 
+                                onClick={() => setIsLedgerOpen(!isLedgerOpen)}
+                                className="px-4 py-2 bg-slate-900 border-b border-white/5 flex justify-between items-center shrink-0 cursor-pointer hover:bg-slate-800 transition-colors"
+                            >
+                                <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-400 flex items-center gap-2">
+                                    <Icons.MapPin /> Location Ledger
+                                    <span className="ml-2 px-1.5 py-0.5 bg-indigo-500/20 text-indigo-400 rounded-md font-mono">{annotatedHexes.length}</span>
+                                </h3>
+                                <div className="text-slate-500">
+                                    {isLedgerOpen ? <Icons.ChevronDown /> : <Icons.ChevronUp />}
+                                </div>
+                            </div>
+                            <div className="flex-1 overflow-y-auto no-scrollbar bg-black/20">
+                                <table className="w-full text-left text-xs border-collapse">
+                                    <thead className="sticky top-0 bg-slate-900 text-[9px] font-bold uppercase text-slate-500 tracking-tighter">
+                                        <tr>
+                                            <th className="px-4 py-2 w-16">Hex</th>
+                                            <th className="px-4 py-2 w-24">Terrain</th>
+                                            <th className="px-4 py-2">Notes Summary</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-white/5">
+                                        {annotatedHexes.length > 0 ? (
+                                            annotatedHexes.map(([id, data]) => (
+                                                <tr 
+                                                    key={`ledger-${id}`} 
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        jumpToHex(id);
+                                                    }}
+                                                    className="hover:bg-indigo-500/10 cursor-pointer transition-colors active:bg-indigo-500/20"
+                                                >
+                                                    <td className="px-4 py-3 font-mono font-bold text-indigo-400">{id}</td>
+                                                    <td className="px-4 py-3">
+                                                        <div className="flex items-center gap-2 capitalize">
+                                                            <div className="w-2 h-2 rounded-full" style={{backgroundColor: TERRAIN_TYPES[data.terrain].color}} />
+                                                            {data.terrain}
+                                                        </div>
+                                                    </td>
+                                                    <td className="px-4 py-3 text-slate-400 italic truncate max-w-[200px]">
+                                                        {data.description.length > 50 ? data.description.substring(0, 50) + '...' : data.description}
+                                                    </td>
+                                                </tr>
+                                            ))
+                                        ) : (
+                                            <tr>
+                                                <td colSpan="3" className="px-4 py-8 text-center text-slate-600 italic">
+                                                    No locations described yet.
+                                                </td>
+                                            </tr>
+                                        )}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </section>
+                    </div>
+
+                    {activeHex && (
+                        <div className="absolute inset-x-4 bottom-28 md:inset-x-auto md:right-8 md:bottom-28 md:w-96 bg-slate-900/95 backdrop-blur-xl p-5 rounded-3xl border border-white/10 shadow-2xl animate-pop z-50">
+                            <div className="flex justify-between items-center mb-4">
+                                <div className="flex items-center gap-2">
+                                    <div className="w-2 h-2 rounded-full" style={{backgroundColor: TERRAIN_TYPES[hexData[activeHex]?.terrain]?.color}} />
+                                    <span className="text-xs font-black text-indigo-400 uppercase tracking-widest">Hex {activeHex} Notes</span>
+                                </div>
+                                <button onClick={() => setActiveHex(null)} className="p-1.5 bg-white/5 rounded-full hover:bg-white/10"><Icons.X /></button>
+                            </div>
+                            <textarea 
+                                autoFocus
+                                className="w-full bg-black/40 border border-white/5 rounded-2xl p-4 text-sm h-32 text-white focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                                value={hexData[activeHex]?.description || ""}
+                                onChange={e => setHexData(prev => ({...prev, [activeHex]: {...prev[activeHex], description: e.target.value}}))}
+                                placeholder="Write something about this location..."
+                            />
+                        </div>
+                    )}
+
+                    <nav className="p-4 bg-slate-900 border-t border-white/5 safe-pb pb-8 shadow-[0_-10px_30px_rgba(0,0,0,0.5)] z-40">
+                        {toolMode === 'paint' && (
+                            <div className="flex gap-2 overflow-x-auto pb-4 no-scrollbar animate-pop">
+                                {Object.entries(TERRAIN_TYPES).map(([k, v]) => (
+                                    <button key={k} onClick={() => setSelectedTerrain(k)} className={`flex-none px-4 py-2 rounded-full text-[10px] font-bold uppercase tracking-wider border-2 transition-all ${selectedTerrain === k ? 'border-indigo-500 bg-indigo-500/20' : 'border-transparent bg-slate-800 hover:bg-slate-700'}`}>
+                                        <div className="w-2 h-2 rounded-full inline-block mr-2" style={{backgroundColor: v.color}} /> {v.label}
+                                    </button>
+                                ))}
+                            </div>
+                        )}
+                        <div className="flex justify-between items-center px-1">
+                            <button onClick={() => setIsGMView(!isGMView)} className={`px-5 py-2 rounded-xl text-xs font-bold flex items-center gap-2 transition-all ${isGMView ? 'bg-indigo-600 shadow-lg shadow-indigo-500/20' : 'bg-slate-800 text-slate-400'}`}>
+                                <Icons.Eye /> {isGMView ? "GM View" : "Player View"}
+                            </button>
+                            <div className="flex flex-col items-end">
+                                <span className="text-[9px] font-bold text-slate-500 uppercase tracking-widest">
+                                    Current Tool: <span className="text-indigo-400">{toolMode === 'paint' ? `Painting ${selectedTerrain}` : 'Editing Notes'}</span>
+                                </span>
+                            </div>
+                        </div>
+                    </nav>
+
+                    {showSettings && (
+                        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[100] flex items-center justify-center p-6" onClick={() => setShowSettings(false)}>
+                            <div className="bg-slate-900 w-full max-w-sm rounded-[2rem] p-8 space-y-8 animate-pop border border-white/10 shadow-2xl" onClick={e => e.stopPropagation()}>
+                                <div className="flex justify-between items-center">
+                                    <h2 className="text-xs font-black text-indigo-400 uppercase tracking-widest">Atlas Controls</h2>
+                                    <button onClick={() => setShowSettings(false)} className="p-2 bg-white/5 rounded-full hover:bg-white/10"><Icons.X /></button>
+                                </div>
+                                
+                                <div className="space-y-4">
+                                    <label className="text-[10px] uppercase font-bold text-slate-500 tracking-tighter">Export & Backup</label>
+                                    <div className="grid grid-cols-2 gap-3">
+                                        <button onClick={saveToJson} className="p-3 bg-slate-800 rounded-xl text-[10px] font-bold uppercase flex flex-col items-center gap-2 border border-white/5 hover:bg-slate-700">
+                                            <Icons.Download /> Save .json
+                                        </button>
+                                        <label className="p-3 bg-slate-800 rounded-xl text-[10px] font-bold uppercase flex flex-col items-center gap-2 border border-white/5 hover:bg-slate-700 cursor-pointer text-center">
+                                            <Icons.Upload /> Load .json
+                                            <input type="file" className="hidden" accept=".json" onChange={loadFromJson} />
+                                        </label>
+                                        <button onClick={exportAsImage} className="col-span-2 p-3 bg-indigo-600/20 text-indigo-400 rounded-xl text-[10px] font-bold uppercase flex items-center justify-center gap-2 border border-indigo-500/30 hover:bg-indigo-600/30">
+                                            <Icons.Camera /> Export PNG Map
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <div className="space-y-4">
+                                    <label className="text-[10px] uppercase font-bold text-slate-500 tracking-tighter">Dimensions</label>
+                                    <div className="grid grid-cols-2 gap-4">
+                                        <div className="space-y-2">
+                                            <div className="flex justify-between text-[10px] font-mono text-slate-400"><span>Cols</span><span>{cols}</span></div>
+                                            <input type="range" min="4" max="25" value={cols} onChange={e => setCols(parseInt(e.target.value))} className="w-full" />
+                                        </div>
+                                        <div className="space-y-2">
+                                            <div className="flex justify-between text-[10px] font-mono text-slate-400"><span>Rows</span><span>{rows}</span></div>
+                                            <input type="range" min="4" max="25" value={rows} onChange={e => setRows(parseInt(e.target.value))} className="w-full" />
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <button onClick={handleRandomize} className="w-full py-4 bg-indigo-600 hover:bg-indigo-500 transition-colors rounded-2xl font-black text-sm flex items-center justify-center gap-3 shadow-xl shadow-indigo-500/20">
+                                    <Icons.Sparkles /> REGENERATE WORLD
+                                </button>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
+
